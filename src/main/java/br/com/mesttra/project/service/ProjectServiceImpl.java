@@ -12,9 +12,11 @@ import br.com.mesttra.project.clients.SecretaryClient;
 import br.com.mesttra.project.entity.Project;
 import br.com.mesttra.project.exception.BusinessException;
 import br.com.mesttra.project.repository.ProjectRepository;
+import br.com.mesttra.project.request.LoginRequest;
 import br.com.mesttra.project.request.ProjectRequest;
 import br.com.mesttra.project.response.BudgetResponse;
 import br.com.mesttra.project.response.ChangeBudgetExpenses;
+import br.com.mesttra.project.response.JwtResponse;
 import br.com.mesttra.project.response.SecretaryResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -24,15 +26,20 @@ import lombok.extern.log4j.Log4j2;
 @Service
 public class ProjectServiceImpl implements IProjectService {
 	
-	ProjectRepository projectRepository;
-	BudgetClient budgetClient;
-	SecretaryClient secretaryClient;
+	private ProjectRepository projectRepository;
+	private BudgetClient budgetClient;
+	private SecretaryClient secretaryClient;
 
 	@Override
 	public Project addProject(ProjectRequest projectRequest) throws BusinessException {
 		try {
-			log.info("Validating rules.");
-			List<BudgetResponse> budgets = budgetClient.getBudgets().stream()
+			LoginRequest loginRequest = new LoginRequest();
+			loginRequest.setUsername("teste");
+			loginRequest.setPassword("teste");
+
+			log.info("Adding project started.");
+			JwtResponse budgetAuthorization = budgetClient.getBudgetAuthorization(loginRequest);
+			List<BudgetResponse> budgets = budgetClient.getBudgets("Bearer "+budgetAuthorization.getToken()).stream()
 					.filter(b -> b.getPossibleDestinations().equalsIgnoreCase(projectRequest.getFolder().toString()))
 					.collect(Collectors.toList());
 
@@ -43,17 +50,25 @@ public class ProjectServiceImpl implements IProjectService {
 						format("Cost %s must be lower that Total Amout %s.", projectRequest.getCost(), totalAmount));
 			}
 
-			SecretaryResponse secretaryById = secretaryClient.getSecretaryById(projectRequest.getSecretariatId());
-			boolean underInvestigation = secretaryById.isUnderInvestigation();
-			if (underInvestigation) {
+			JwtResponse secretariasAuthorization = secretaryClient.getSecretariasAuthorization(loginRequest);
+			SecretaryResponse secretaryById = secretaryClient.getSecretaryById(
+					"Bearer "+secretariasAuthorization.getToken(),
+					projectRequest.getSecretariatId());
+			
+			boolean isUnderInvestigation = secretaryById.isUnderInvestigation();
+			if (isUnderInvestigation) {
 				throw new BusinessException(
 						format("Secretary %s is under investigation.", secretaryById.getSecretaryName()));
 			}
 			
 			ChangeBudgetExpenses c = new ChangeBudgetExpenses();
 			c.spentAmount = projectRequest.getCost();
-			budgetClient.update("Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJSdWJpZSIsImlhdCI6MTYzMjMxMDEzOCwiZXhwIjoxNjMyMzUzMzM4fQ.DGnVsiHujXuJVOUECVnc-HLugd0v1oSAtRxMKaXwZk4C3UzVu6wv8e8IRHXDLF8oU_8OBxobHnG4lQ2arjAOPQ",budgets.get(budgets.size() - 1).getId(), c);
+			
+			budgetClient.update(
+					"Bearer "+budgetAuthorization.getToken(),
+					budgets.get(budgets.size() - 1).getId(), c);
 			log.info("Updated spent amount in Budget table.");
+			
 		} catch (Exception e) {
 			throw new BusinessException(e.getMessage());
 		}
