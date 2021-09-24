@@ -37,9 +37,12 @@ public class ProjectServiceImpl implements IProjectService {
 			loginRequest.setUsername("teste");
 			loginRequest.setPassword("teste");
 
-			log.info("Adding project started.");
-			JwtResponse budgetAuthorization = budgetClient.getBudgetAuthorization(loginRequest);
-			List<BudgetResponse> budgets = budgetClient.getBudgets("Bearer "+budgetAuthorization.getToken()).stream()
+			log.info("Getting authorization from client.");
+			JwtResponse authorization = budgetClient.getBudgetAuthorization(loginRequest);
+			
+			log.info("Creating project.");
+			List<BudgetResponse> budgets = budgetClient.getBudgets("Bearer "+authorization.getToken()).stream()
+					.filter(b -> b != null)
 					.filter(b -> b.getPossibleDestinations().equalsIgnoreCase(projectRequest.getFolder().toString()))
 					.collect(Collectors.toList());
 
@@ -47,12 +50,12 @@ public class ProjectServiceImpl implements IProjectService {
 
 			if (projectRequest.getCost() > totalAmount) {
 				throw new BusinessException(
-						format("Cost %s must be lower that Total Amout %s.", projectRequest.getCost(), totalAmount));
+						format("Cost %s must be lower than Total Amout %s.", 
+								projectRequest.getCost(), totalAmount));
 			}
 
-			JwtResponse secretariasAuthorization = secretaryClient.getSecretariasAuthorization(loginRequest);
 			SecretaryResponse secretaryById = secretaryClient.getSecretaryById(
-					"Bearer "+secretariasAuthorization.getToken(),
+					"Bearer "+authorization.getToken(),
 					projectRequest.getSecretariatId());
 			
 			boolean isUnderInvestigation = secretaryById.isUnderInvestigation();
@@ -64,10 +67,10 @@ public class ProjectServiceImpl implements IProjectService {
 			ChangeBudgetExpenses c = new ChangeBudgetExpenses();
 			c.spentAmount = projectRequest.getCost();
 			
+			log.info("Updating spent amount in Budget table.");
 			budgetClient.update(
-					"Bearer "+budgetAuthorization.getToken(),
+					"Bearer "+authorization.getToken(),
 					budgets.get(budgets.size() - 1).getId(), c);
-			log.info("Updated spent amount in Budget table.");
 			
 		} catch (Exception e) {
 			throw new BusinessException(e.getMessage());
